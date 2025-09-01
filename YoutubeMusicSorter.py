@@ -98,6 +98,7 @@ class DynamicGUI:
                 if pl["title"].lower() == "liked music":
                     continue
                 self.add_button("Sort", pl['title'], command=lambda pid=pl["playlistId"]: self.sort_playlist(pid))
+                self.set_active_state()
         except Exception as e:
             self.text_debug.config(text="Error loading playlists, check console for details.")
             print(f"Error loading playlists: {e}")
