@@ -150,8 +150,8 @@ class DynamicGUI:
             if sorted_video_ids:
                 ytmusic.add_playlist_items(pid, sorted_video_ids)
         except Exception as e:
-            self.text_debug.config(text="Error sorting playlist, restoring backup.")
             failed_sort = True
+            self.text_debug.config(text="Error sorting playlist, restoring backup.")
             print(f"Error sorting playlist: {e}")
             # Restore from backup
             try:
@@ -161,7 +161,8 @@ class DynamicGUI:
                 ])
                 ytmusic.add_playlist_items(pid, video_ids)
             except Exception as restore_e:
-                print(f"Error restoring from backup: {restore_e}")
+                self.text_debug.config(text="Error restoring from backup, check console for details.")
+                print(f"Error restoring from backup: {restore_e}\nManual fix may be required.")
                 self.set_active_state()
                 return
 
