@@ -98,55 +98,103 @@ class DynamicGUI:
                 if pl["title"].lower() == "liked music":
                     continue
                 self.add_button("Sort", pl['title'], command=lambda pid=pl["playlistId"]: self.sort_playlist(pid))
+                self.set_active_state()
         except Exception as e:
             self.text_debug.config(text="Error loading playlists, check console for details.")
             print(f"Error loading playlists: {e}")
         
-    # Sorts a playlist by artist name A-Z
+    # Sorts a playlist by artist name A-Z, with backup and safe reordering
     def sort_playlist(self, pid):
-        self.set_button_color("red", "black")
-        self.set_buttons_state("disabled")
+        self.set_busy_state()
 
         try:
             playlist = ytmusic.get_playlist(pid, limit=None)
             tracks = playlist.get("tracks", [])
             if not tracks:
-                self.set_buttons_state("normal")
-                self.set_button_color("green", "black")
+                self.set_active_state()
                 return
         except Exception as e:
             self.text_debug.config(text="Error getting playlist, check console for details.")
             print(f"Error getting playlist: {e}")
-            self.set_buttons_state("normal")
-            self.set_button_color("green", "black")
+            self.set_active_state()
             return
-        
-        sorted_tracks = sorted(tracks, key=lambda t: (t["artists"][0]["name"].lower() if t.get("artists") else ""))
-        video_ids = [t["videoId"] for t in sorted_tracks if t.get("videoId")]
-        
+
+        # Create backup of selected playlist
+        backup_pid = None
         try:
+            backup_pid = ytmusic.create_playlist(
+                title=f"Backup of {playlist['title']}",
+                description="Temporary backup for sorting",
+                privacy_status="PRIVATE"
+            )
+            video_ids = [t["videoId"] for t in tracks if t.get("videoId")]
             if video_ids:
-                ytmusic.remove_playlist_items(pid, [{"videoId": t["videoId"], "setVideoId": t["setVideoId"]} for t in tracks if t.get("videoId") and t.get("setVideoId")])
-                ytmusic.add_playlist_items(pid, video_ids) 
+                ytmusic.add_playlist_items(backup_pid, video_ids)
         except Exception as e:
-            self.text_debug.config(text="Error sorting playlist, check console for details.")
-            print(f"Error sorting playlist: {e}")
-            self.set_buttons_state("normal")
-            self.set_button_color("green", "black")
+            self.text_debug.config(text="Error creating backup playlist.")
+            print(f"Error creating backup: {e}")
+            self.set_active_state()
             return
-            
-        self.text_debug.config(text="Sorted playlist successfully.")
-        self.set_buttons_state("normal")
-        self.set_button_color("green", "black")
+
+        # Sort tracks by artist name
+        sorted_tracks = sorted(tracks, key=lambda t: (t["artists"][0]["name"].lower() if t.get("artists") else ""))
+        sorted_video_ids = [t["videoId"] for t in sorted_tracks if t.get("videoId")]
+        failed_sort = False
+
+        # Try to reorder tracks in the original playlist
+        try:
+            ytmusic.remove_playlist_items(pid, [
+                {"videoId": t["videoId"], "setVideoId": t["setVideoId"]}
+                for t in tracks if t.get("videoId") and t.get("setVideoId")
+            ])
+            if sorted_video_ids:
+                ytmusic.add_playlist_items(pid, sorted_video_ids)
+        except Exception as e:
+            failed_sort = True
+            self.text_debug.config(text="Error sorting playlist, restoring backup.")
+            print(f"Error sorting playlist: {e}")
+            # Restore from backup
+            try:
+                ytmusic.remove_playlist_items(pid, [
+                    {"videoId": t["videoId"], "setVideoId": t["setVideoId"]}
+                    for t in tracks if t.get("videoId") and t.get("setVideoId")
+                ])
+                ytmusic.add_playlist_items(pid, video_ids)
+            except Exception as restore_e:
+                self.text_debug.config(text="Error restoring from backup, check console for details.")
+                print(f"Error restoring from backup: {restore_e}\nManual fix may be required.")
+                self.set_active_state()
+                return
+
+        # Delete backup playlist
+        try:
+            ytmusic.delete_playlist(backup_pid)
+        except Exception as e:
+            print(f"Warning: could not delete backup playlist: {e}")
+
+        if failed_sort:
+            self.text_debug.config(text="Error sorting playlist, restored from backup.")
+        else:
+            self.text_debug.config(text="Sorted playlist successfully.")
+        self.set_active_state()
     
-    def set_buttons_state(self, state): # "normal" or "disabled"
+    def set_buttons_state(self, state):
         for btn in self.buttons:
             btn.config(state=state)
 
     def set_button_color(self, bg, fg="black"):
         for btn in self.buttons:
             btn.config(bg=bg, fg=fg)
+            
+    def set_busy_state(self):
+        self.set_button_color("red", "black")
+        self.set_buttons_state("disabled")
+        
+    def set_active_state(self):
+        self.set_button_color("green", "black")
+        self.set_buttons_state("normal")
 
+# Start UI
 if __name__ == "__main__":
     load_dotenv()
     CLIENT_ID = os.getenv("CLIENT_ID")
@@ -158,5 +206,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     gui = DynamicGUI(root)
     gui.refresh_playlist_list()
-    gui.set_button_color("green", "black")
+    gui.set_active_state()
     root.mainloop()
